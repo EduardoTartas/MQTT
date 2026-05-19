@@ -3,3 +3,7 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+mqtt-broker/data/*
+!mqtt-broker/data/.gitkeep
+mqtt-broker/log/*
+!mqtt-broker/log/.gitkeep
