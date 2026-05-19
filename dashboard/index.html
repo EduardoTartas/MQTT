@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IoT MQTT — Grupo 01</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0F172A;
+      --card:      #1E293B;
+      --card2:     #334155;
+      --green:     #22C55E;
+      --green-dim: #16a34a;
+      --red:       #EF4444;
+      --text:      #F8FAFC;
+      --muted:     #94A3B8;
+      --border:    #334155;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Fira Sans', sans-serif;
+      min-height: 100vh;
+      padding: 1.5rem;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.75rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .header-left h1 {
+      font-family: 'Fira Code', monospace;
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+    }
+
+    .header-left p {
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-top: 2px;
+      font-family: 'Fira Code', monospace;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 9999px;
+      padding: 0.4rem 1rem;
+      font-size: 0.8rem;
+      font-family: 'Fira Code', monospace;
+      transition: border-color 200ms;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      transition: background 300ms;
+    }
+
+    .status-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+    /* ── Broker config bar ── */
+    .config-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .config-bar label {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-family: 'Fira Code', monospace;
+    }
+
+    .config-bar input {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: 'Fira Code', monospace;
+      font-size: 0.82rem;
+      padding: 0.4rem 0.75rem;
+      outline: none;
+      width: 200px;
+      transition: border-color 200ms;
+    }
+
+    .config-bar input:focus { border-color: var(--green); }
+
+    .btn {
+      background: var(--green);
+      border: none;
+      border-radius: 6px;
+      color: #0F172A;
+      cursor: pointer;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 0.4rem 1rem;
+      transition: background 150ms;
+    }
+
+    .btn:hover { background: var(--green-dim); }
+
+    .btn.disconnect {
+      background: transparent;
+      border: 1px solid var(--red);
+      color: var(--red);
+    }
+
+    .btn.disconnect:hover { background: #7f1d1d22; }
+
+    /* ── Stats grid ── */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.1rem 1.25rem;
+      transition: border-color 200ms;
+    }
+
+    .stat-card:hover { border-color: var(--green); }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-family: 'Fira Code', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.4rem;
+    }
+
+    .stat-value {
+      font-family: 'Fira Code', monospace;
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--text);
+      transition: color 200ms;
+    }
+
+    .stat-value.pulse {
+      color: var(--green);
+      text-shadow: 0 0 14px #22C55E88;
+    }
+
+    .stat-sub {
+      color: var(--muted);
+      font-size: 0.72rem;
+      margin-top: 0.3rem;
+    }
+
+    /* ── Chart ── */
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .chart-title {
+      font-family: 'Fira Code', monospace;
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 1rem;
+    }
+
+    .chart-wrap {
+      position: relative;
+      height: 220px;
+    }
+
+    /* ── Log ── */
+    .log-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+    }
+
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.85rem;
+    }
+
+    .log-title {
+      font-family: 'Fira Code', monospace;
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .log-clear {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.72rem;
+      padding: 0.2rem 0.6rem;
+      transition: border-color 150ms, color 150ms;
+    }
+
+    .log-clear:hover { border-color: var(--muted); color: var(--text); }
+
+    .log-list {
+      list-style: none;
+      max-height: 220px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--card2) transparent;
+    }
+
+    .log-item {
+      display: grid;
+      grid-template-columns: 80px 1fr auto;
+      gap: 0.75rem;
+      align-items: center;
+      padding: 0.45rem 0.5rem;
+      border-radius: 6px;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.78rem;
+      animation: fadeIn 200ms ease;
+      transition: background 150ms;
+    }
+
+    .log-item:hover { background: var(--card2); }
+
+    .log-time { color: var(--muted); }
+
+    .log-payload { color: var(--text); word-break: break-all; }
+
+    .log-valor {
+      background: #14532d44;
+      border: 1px solid #22c55e44;
+      border-radius: 4px;
+      color: var(--green);
+      font-weight: 600;
+      padding: 0.1rem 0.4rem;
+      white-space: nowrap;
+    }
+
+    .log-empty {
+      color: var(--muted);
+      font-family: 'Fira Code', monospace;
+      font-size: 0.8rem;
+      padding: 1.5rem 0;
+      text-align: center;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 600px) {
+      body { padding: 1rem; }
+      .stat-value { font-size: 1.6rem; }
+      .log-item { grid-template-columns: 1fr; gap: 0.2rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-left">
+      <h1>IoT MQTT — Grupo 01</h1>
+      <p>tópico: iot/grupo01/sensor</p>
+    </div>
+    <div class="status-badge">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Desconectado</span>
+    </div>
+  </header>
+
+  <div class="config-bar">
+    <label>Broker IP</label>
+    <input type="text" id="brokerInput" value="localhost" placeholder="ex: 192.168.x.x" />
+    <label>Porta WS</label>
+    <input type="text" id="portInput" value="9001" style="width:80px" />
+    <button class="btn" id="connectBtn" onclick="toggleConnect()">Conectar</button>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-label">Último Valor</div>
+      <div class="stat-value" id="statValor">—</div>
+      <div class="stat-sub">0 a 100</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Mensagens</div>
+      <div class="stat-value" id="statCount">0</div>
+      <div class="stat-sub">recebidas</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Envio #</div>
+      <div class="stat-value" id="statEnvio">—</div>
+      <div class="stat-sub">contador ESP32</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Grupo</div>
+      <div class="stat-value" id="statGrupo">—</div>
+      <div class="stat-sub">identificação</div>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Valores em tempo real</div>
+    <div class="chart-wrap">
+      <canvas id="chart"></canvas>
+    </div>
+  </div>
+
+  <div class="log-card">
+    <div class="log-header">
+      <span class="log-title">Log de mensagens</span>
+      <button class="log-clear" onclick="clearLog()">limpar</button>
+    </div>
+    <ul class="log-list" id="logList">
+      <li class="log-empty" id="logEmpty">Aguardando mensagens...</li>
+    </ul>
+  </div>
+
+  <script>
+    // ── Chart setup ──────────────────────────────────────────────────────────
+    const MAX_POINTS = 30;
+    const chartData = { labels: [], datasets: [{ label: 'valor', data: [],
+      borderColor: '#22C55E', backgroundColor: '#22C55E18',
+      borderWidth: 2, fill: true, tension: 0.4, pointRadius: 3,
+      pointBackgroundColor: '#22C55E' }] };
+
+    const chart = new Chart(document.getElementById('chart'), {
+      type: 'line',
+      data: chartData,
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
+        scales: {
+          x: { ticks: { color: '#64748B', font: { family: 'Fira Code', size: 10 } },
+               grid: { color: '#1E293B' } },
+          y: { min: 0, max: 100,
+               ticks: { color: '#64748B', font: { family: 'Fira Code', size: 10 }, stepSize: 25 },
+               grid: { color: '#1e293b' } }
+        },
+        plugins: { legend: { display: false } }
+      }
+    });
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    let client = null;
+    let msgCount = 0;
+
+    function now() {
+      return new Date().toLocaleTimeString('pt-BR', { hour12: false });
+    }
+
+    // ── Connect / Disconnect ──────────────────────────────────────────────────
+    function toggleConnect() {
+      if (client && client.connected) { client.end(); return; }
+
+      const ip   = document.getElementById('brokerInput').value.trim() || 'localhost';
+      const port = document.getElementById('portInput').value.trim()   || '9001';
+      const url  = `ws://${ip}:${port}/mqtt`;
+
+      client = mqtt.connect(url, { clientId: 'dashboard-' + Math.random().toString(16).slice(2) });
+
+      client.on('connect', () => {
+        setStatus(true);
+        client.subscribe('iot/grupo01/sensor');
+        document.getElementById('connectBtn').textContent = 'Desconectar';
+        document.getElementById('connectBtn').classList.add('disconnect');
+      });
+
+      client.on('close', () => {
+        setStatus(false);
+        document.getElementById('connectBtn').textContent = 'Conectar';
+        document.getElementById('connectBtn').classList.remove('disconnect');
+      });
+
+      client.on('error', () => client.end());
+
+      client.on('message', (topic, payload) => {
+        try {
+          const msg = JSON.parse(payload.toString());
+          handleMessage(msg);
+        } catch { /* payload inválido */ }
+      });
+    }
+
+    function setStatus(connected) {
+      document.getElementById('statusDot').classList.toggle('connected', connected);
+      document.getElementById('statusText').textContent = connected ? 'Conectado' : 'Desconectado';
+    }
+
+    // ── Handle incoming message ───────────────────────────────────────────────
+    function handleMessage(msg) {
+      msgCount++;
+
+      // Stats
+      const valorEl = document.getElementById('statValor');
+      valorEl.textContent = msg.valor ?? '?';
+      valorEl.classList.add('pulse');
+      setTimeout(() => valorEl.classList.remove('pulse'), 600);
+
+      document.getElementById('statCount').textContent = msgCount;
+      document.getElementById('statEnvio').textContent = msg.envio ?? '?';
+      document.getElementById('statGrupo').textContent = msg.grupo ?? '?';
+
+      // Chart
+      const t = now();
+      chartData.labels.push(t);
+      chartData.datasets[0].data.push(msg.valor);
+      if (chartData.labels.length > MAX_POINTS) {
+        chartData.labels.shift();
+        chartData.datasets[0].data.shift();
+      }
+      chart.update();
+
+      // Log
+      const empty = document.getElementById('logEmpty');
+      if (empty) empty.remove();
+
+      const list = document.getElementById('logList');
+      const li   = document.createElement('li');
+      li.className = 'log-item';
+      li.innerHTML = `
+        <span class="log-time">${t}</span>
+        <span class="log-payload">${JSON.stringify(msg)}</span>
+        <span class="log-valor">${msg.valor}</span>`;
+      list.insertBefore(li, list.firstChild);
+
+      // Manter máx 50 itens no log
+      while (list.children.length > 50) list.removeChild(list.lastChild);
+    }
+
+    // ── Clear log ─────────────────────────────────────────────────────────────
+    function clearLog() {
+      const list = document.getElementById('logList');
+      list.innerHTML = '<li class="log-empty" id="logEmpty">Aguardando mensagens...</li>';
+    }
+  </script>
+</body>
+</html>
