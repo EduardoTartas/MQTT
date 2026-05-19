@@ -1,14 +1,41 @@
+# =============================================================================
+# docker-compose.yml — Broker MQTT Mosquitto
+# =============================================================================
+#
+# O que este arquivo faz:
+#   Define e sobe um container Docker com o broker Eclipse Mosquitto 2.0.
+#   O broker é o "servidor" do protocolo MQTT: recebe mensagens dos publicadores
+#   (ESP32) e repassa para todos os assinantes do mesmo tópico (dashboard, etc.).
+#
+# Como usar:
+#   docker compose up -d    → sobe em background
+#   docker compose down     → para e remove o container
+#   docker compose logs -f  → acompanha logs em tempo real
+# =============================================================================
+
 version: "3.8"
 
 services:
   mosquitto:
+    # Imagem oficial do Eclipse Mosquitto versão 2.0 (estável e amplamente usada)
     image: eclipse-mosquitto:2.0
     container_name: mqtt-broker
+
+    # restart: unless-stopped → reinicia o container automaticamente se cair,
+    # exceto quando parado manualmente com "docker compose down"
     restart: unless-stopped
+
     ports:
-      - "1883:1883"   # MQTT
-      - "9001:9001"   # WebSocket
+      - "1883:1883"   # Porta padrão do protocolo MQTT (TCP puro — ESP32 usa esta)
+      - "9001:9001"   # WebSocket MQTT — o dashboard HTML usa esta porta no browser
+
     volumes:
+      # Monta o arquivo de configuração do host dentro do container
+      # Qualquer alteração em ./config/mosquitto.conf é refletida no container
       - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+      # Persistência de dados: mensagens retidas (retained) sobrevivem a reinicializações
       - ./data:/mosquitto/data
+
+      # Logs do broker gravados no host para inspeção fácil
       - ./log:/mosquitto/log
