@@ -17,6 +17,52 @@ Desenvolver um dispositivo IoT com ESP32 capaz de:
 
 ## 2. Arquitetura do Sistema
 
+```mermaid
+graph TD
+    %% Origem dos dados (Dispositivo IoT)
+    subgraph ESP32 ["ESP32 (Nó Sensor IoT)"]
+        ADC["ADC (Pino A0 flutuante)"] -->|Ruído Térmico| Seed["randomSeed()"]
+        Seed -->|Semente Aleatória| Random["random(0, 101)"]
+        Random -->|Gera Valor| JSON["Payload JSON\n{'grupo':'01', 'valor':X, 'envio':N}"]
+        WiFi["WiFi.begin()"] -->|Conexão TCP/IP| ClientTCP["WiFiClient Socket"]
+        JSON --> ClientTCP
+    end
+
+    %% Servidor de Mensagens (Broker)
+    subgraph Servidor ["Broker MQTT (Docker)"]
+        Mosquitto["Eclipse Mosquitto 2.0"]
+        ClientTCP -->|Porta 1883 (TCP)| Mosquitto
+    end
+
+    %% Clientes Finais (Assinantes)
+    subgraph Consumidores ["Clientes Assinantes (Subscribers)"]
+        Terminal["Console Terminal\n(mosquitto_sub)"]
+        Browser["Dashboard Web\n(Browser)"]
+        
+        Mosquitto -->|Filtro: iot/grupo01/sensor| Terminal
+        Mosquitto -->|Porta 9001 (WebSockets)| Browser
+    end
+
+    %% Detalhes do Front-end
+    subgraph Front ["Processamento Dashboard (HTML/JS)"]
+        Browser -->|mqtt.js| Parse["JSON.parse()"]
+        Parse -->|Chart.js| Chart["Gráfico em Tempo Real"]
+        Parse -->|Manipulação DOM| Cards["Cards de Status & Log Histórico"]
+    end
+    
+    %% Estilização do Diagrama
+    classDef esp fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
+    classDef broker fill:#1e293b,stroke:#22c55e,stroke-width:2px,color:#f8fafc;
+    classDef sub fill:#1e293b,stroke:#eab308,stroke-width:2px,color:#f8fafc;
+    classDef dash fill:#1e293b,stroke:#ec4899,stroke-width:2px,color:#f8fafc;
+    
+    class ESP32,ADC,Seed,Random,JSON,WiFi,ClientTCP esp;
+    class Servidor,Mosquitto broker;
+    class Consumidores,Terminal,Browser sub;
+    class Front,Parse,Chart,Cards dash;
+```
+
+**Esquema de Rede (ASCII):**
 ```
 ┌─────────────┐        Wi-Fi / TCP        ┌──────────────────────┐
 │   ESP32     │ ────── MQTT:1883 ────────► │  Broker Mosquitto    │
@@ -204,22 +250,23 @@ make test-pub
 
 ---
 
-## 10. Decisões Técnicas
+## 10. Decisões Técnicas e Paradigmas
 
-### Por que Docker para o broker?
+### Paradigma Bare Metal Super Loop com Multitarefa Cooperativa
 
-O Mosquitto poderia ser instalado diretamente no sistema operacional, mas o Docker oferece:
-- **Portabilidade**: funciona igual em Linux, Mac e Windows
-- **Isolamento**: não interfere com outros serviços na máquina
-- **Reprodutibilidade**: qualquer colega sobe o mesmo ambiente com `docker compose up -d`
+Embora o ESP32 seja uma plataforma moderna que roda o sistema operacional de tempo real **FreeRTOS** sob a camada do Arduino Core, optamos por implementar o firmware utilizando o paradigma clássico de **Bare Metal Super Loop** com **Multitarefa Cooperativa**. Isso foi feito por meio de:
+
+1. **Execução Sequencial Limpa:** O código roda inteiramente no Core 1 do chip através da função `loop()`, minimizando a complexidade associada à troca de contexto e concorrência preemptiva.
+2. **Multitarefa Não-Bloqueante:** Em vez de depender do agendador de tarefas do RTOS para alternar threads (o que aumentaria a pegada de memória), o firmware utiliza o método de *polling* temporal cooperativo.
 
 ### Por que `millis()` em vez de `delay()`?
 
-`delay(5000)` **bloqueia o processador** por 5 segundos. Durante esse tempo:
-- `mqttClient.loop()` não é chamado → a conexão MQTT cai por timeout de keep-alive
-- Nenhuma reconexão é possível
+O `delay(5000)` é uma chamada síncrona/bloqueante que **congela o processador** por 5 segundos. Em um sistema bare-metal típico, durante esse congelamento:
+* A função `mqttClient.loop()` (que atua como uma bomba de eventos em segundo plano) não seria executada.
+* O broker MQTT desconectaria o ESP32 por falha no envio de pacotes de controle (timeout de *keep-alive*).
+* O dispositivo seria incapaz de responder instantaneamente a desconexões ou eventos na rede.
 
-`millis()` mede o tempo **sem bloquear**, permitindo que o `loop()` continue rodando e mantendo todas as conexões ativas.
+Ao usar `millis()`, criamos uma verificação condicional rápida (*polling*). O processador executa o loop em microsegundos, chamando a rotina de manutenção do MQTT continuamente e publicando os dados de forma assíncrona somente quando o tempo decorrido atinge o intervalo de 5 segundos.
 
 ### Por que JSON no payload?
 
@@ -228,9 +275,10 @@ Texto puro (`"73"`) funcionaria para o requisito mínimo, mas JSON permite:
 - Identificação do grupo sem depender do tópico
 - Compatibilidade direta com dashboards, bancos de dados e APIs
 
-### Por que `randomSeed(analogRead(0))`?
+### Por que `randomSeed(analogRead(0))`? (Interação Física Bare Metal)
 
-Sem `randomSeed`, o ESP32 geraria **sempre a mesma sequência** de números ao reiniciar (pseudoaleatório com semente fixa). `analogRead(0)` lê ruído elétrico de um pino desconectado — valor imprevisível — garantindo sequências diferentes a cada boot.
+Computadores e microcontroladores são máquinas determinísticas: sem uma semente dinâmica, o gerador de números pseudo-aleatórios do ESP32 produziria **a exata mesma sequência** de dados a cada reinicialização.
+Para resolver isso, realizamos a leitura de um pino analógico desconectado (`analogRead(0)`). Como o pino está eletricamente flutuante, ele atua como uma antena capturando o ruído térmico e eletromagnético do ambiente. Esse valor analógico físico e imprevisível inicializa a semente (`randomSeed`), garantindo a geração de dados verdadeiramente aleatórios.
 
 ### Por que WebSocket na porta 9001?
 
